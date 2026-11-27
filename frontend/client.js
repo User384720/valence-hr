@@ -429,11 +429,11 @@ function updateLive() {
   });
 
   if (room.phase === 'matchup' && room.match) {
-    const votes = room.match.votes || { a: 0, b: 0 };
-    const aNode = $('[data-votes="a"]');
-    const bNode = $('[data-votes="b"]');
-    if (aNode) aNode.textContent = votes.a || 0;
-    if (bNode) bNode.textContent = votes.b || 0;
+    const votedNode = $('[data-voted]');
+    if (votedNode) {
+      votedNode.textContent =
+        (room.match.votedIds || []).length + '/' + room.match.voterCount + ' VOTED';
+    }
   }
 
   if (seconds <= 10 && seconds > 0 && room.phase !== 'lobby' && room.phase !== 'final') {
@@ -920,7 +920,6 @@ function screenBriefing(room) {
 function chipLookup(room, promptIndex) {
   const map = new Map();
   (room.hand || []).forEach((word) => map.set(word.id, { id: word.id, text: word.text, kind: 'hand' }));
-  (room.free || []).forEach((word) => map.set(word.id, { id: word.id, text: word.text, kind: 'free' }));
   const prompt = room.prompts[promptIndex];
   (prompt && prompt.words ? prompt.words : []).forEach((word) =>
     map.set(word.id, { id: word.id, text: word.text, kind: 'q' })
@@ -938,6 +937,11 @@ function picksFor(room) {
 function setPicks(room, chips) {
   const key = 'r' + room.round + 'p' + S.builderPrompt;
   S.builder[key] = chips;
+}
+
+// Punctuation tiles do not count toward the two-word minimum.
+function spelledCount(chips) {
+  return chips.filter((chip) => !/^[,.;:!?]$/.test(chip.text)).length;
 }
 
 function orderKey(room) {
@@ -1042,8 +1046,14 @@ function screenInterview(room) {
     ? esc(prompt.text).replace('___', `<span class="blank">${esc(answerText || '________')}</span>`)
     : esc(answerText || 'Tap a word');
 
-  const chipButton = (chip, pool) => `
+  // A tile is used up the moment it lands in the answer, like the real
+  // controller: it leaves the tray and only comes back if you tap it out again.
+  const takenIds = new Set(picks.map((chip) => chip.id));
+  const chipButton = (chip, pool) => {
+    if (takenIds.has(chip.id)) return '';
+    return `
     <button class="chip chip--${pool}" type="button" data-add="${esc(chip.id)}">${esc(chip.text)}</button>`;
+  };
 
   return `
     <section class="screen screen--builder">
@@ -1061,7 +1071,7 @@ function screenInterview(room) {
               prompt.blank ? 'FINISH THE SENTENCE' : 'ANSWER THE QUESTION'
             }</span>
             <p class="stage__qtext">${prompt.blank ? answerDisplay : esc(prompt.text)}</p>
-            <span class="stage__qfoot">${picks.length} WORD${picks.length === 1 ? '' : 'S'} PLACED${
+            <span class="stage__qfoot">${spelledCount(picks)} WORD${spelledCount(picks) === 1 ? '' : 'S'} PLACED${
           filedHere ? ' · FILED ✓' : ''
         }</span>
           </div>
@@ -1138,10 +1148,6 @@ function screenInterview(room) {
             ${(prompt.words || []).map((chip) => chipButton(chip, 'q')).join('')}
           </div>
 
-          <span class="kicker kicker--spaced">FREE WORDS</span>
-          <div class="words words--free">
-            ${(room.free || []).map((chip) => chipButton(chip, 'free')).join('')}
-          </div>
         </div>
 
         <div class="sticky-cta">
@@ -1149,8 +1155,8 @@ function screenInterview(room) {
             filedHere
               ? `<button id="nextQuestion" class="btn btn--ink btn--wide" type="button">NEXT QUESTION</button>`
               : `<button id="fileAnswer" class="btn btn--primary btn--wide" type="button" ${
-                  picks.length >= 2 ? '' : 'disabled'
-                }>${picks.length >= 2 ? 'FILE ANSWER' : 'TWO WORDS MINIMUM'}</button>`
+                  spelledCount(picks) >= 2 ? '' : 'disabled'
+                }>${spelledCount(picks) >= 2 ? 'FILE ANSWER' : 'TWO WORDS MINIMUM'}</button>`
           }
           <p class="tiny tiny--center">${(room.filedIds || []).length}/${
           room.players.length
@@ -1228,9 +1234,8 @@ function screenMatchup(room) {
             ${matchupCard(room, 'b')}
           </div>
           <div class="stage__votes">
-            <span>A · <b data-votes="a">${match.votes.a || 0}</b></span>
-            <span>B · <b data-votes="b">${match.votes.b || 0}</b></span>
-            <span>${(match.votedIds || []).length}/${match.voterCount} VOTED</span>
+            <span>VOTES ARE SEALED UNTIL THE PANEL RECONVENES</span>
+            <span data-voted>${(match.votedIds || []).length}/${match.voterCount} VOTED</span>
           </div>`
       })}
 
@@ -1293,7 +1298,8 @@ function resultCard(room, side) {
       <p class="result-card__text">${filled || esc(data.text)}</p>
       <div class="reveal-words">${revealWords(data.words)}</div>
       <div class="result-card__votes">
-        <b>${match.votes[side] || 0}</b> vote${(match.votes[side] || 0) === 1 ? '' : 's'}
+        <b>${match.votes[side] || 0}</b> vote${(match.votes[side] || 0) === 1 ? '' : 's'} ·
+        <b>${(match.percent && match.percent[side]) || 0}%</b>
       </div>
     </div>`;
 }
@@ -1647,6 +1653,7 @@ function addChip(id) {
   const chip = lookup.get(id);
   if (!chip) return;
   const picks = picksFor(room);
+  if (picks.some((picked) => picked.id === chip.id)) return;
   if (picks.length >= 40) {
     toast('That is a very long answer. HR caps it at 40 words.');
     return;
@@ -1718,7 +1725,7 @@ function fileAnswer() {
   if (!room || room.phase !== 'interview') return;
   const promptIndex = S.builderPrompt;
   const picks = picksFor(room);
-  if (picks.length < 2) {
+  if (spelledCount(picks) < 2) {
     toast('Two words minimum. HR is not flexible on this.');
     return;
   }

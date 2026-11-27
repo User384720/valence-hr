@@ -40,43 +40,14 @@ const ROUND_RESULT_SECONDS = 10;
 
 const MIN_ICEBREAKER_WORDS = 5;
 const MIN_ANSWER_WORDS = 2;
-const HAND_FLOOR = 16;
 
-const MATCH_WIN_POINTS = 1000;
+// A matchup pays out this many points in total, split by share of the vote,
+// the way the real game does it.
+const MATCH_POINTS = 1000;
 const WORD_ROYALTY_POINTS = 300;
 const QUESTION_WORD_BONUS = 200;
 const QUESTION_WORD_CAP = 3;
 const CROSS_DEPARTMENT_BONUS = 500;
-
-const FREE_WORDS = [
-  'I',
-  'am',
-  'the',
-  'to',
-  'a',
-  'and',
-  'but',
-  'because',
-  'my',
-  'your',
-  'not',
-  'very',
-  'in',
-  'of',
-  'it',
-  'is',
-  'was',
-  'will',
-  'for',
-  'with',
-  'never',
-  'always',
-  ',',
-  '.',
-  '?',
-  '!',
-  ';'
-];
 
 const COLORS = [
   '#F25C2A',
@@ -355,8 +326,8 @@ const ROUNDS = [
     key: 'statement',
     label: 'ROUND 3',
     title: 'THE PERSONAL STATEMENT',
-    tagline: 'M. Bubbles lost your resume. Finish the one sentence anyway.',
-    promptCount: 1,
+    tagline: 'M. Bubbles lost your resume. Finish both sentences anyway.',
+    promptCount: 2,
     bank: STATEMENT_PROMPTS
   }
 ];
@@ -376,7 +347,7 @@ const CUTSCENES = [
   ],
   [
     'I have misplaced all of your resumes. Every single one. Do not ask how.',
-    'For the final exercise, finish one sentence about yourself. Make it count.',
+    'For the final exercise, finish two sentences about yourself. Make them count.',
     'The winner receives the job: a lanyard, a mug, and a sense of dread.'
   ]
 ];
@@ -539,16 +510,42 @@ function initialsOf(name) {
   return (parts[0][0] + parts[1][0]).toUpperCase();
 }
 
+const PUNCTUATION_TOKENS = ',.!?;:';
+
+function isPunctuationToken(token) {
+  return typeof token === 'string' && token.length === 1 && PUNCTUATION_TOKENS.indexOf(token) !== -1;
+}
+
+// Words keep their inner apostrophes and hyphens, and punctuation is handed
+// back as its own tile, because the real controller is full of punctuation.
 function tokenize(text) {
-  return String(text || '')
+  const tokens = [];
+  String(text || '')
     .slice(0, MAX_ANSWER_CHARS)
     .split(/\s+/)
-    .map((raw) =>
-      raw
-        .replace(/[^\p{L}\p{N}'’-]/gu, '')
-        .replace(/^['’-]+|['’-]+$/g, '')
-    )
-    .filter(Boolean);
+    .forEach((raw) => {
+      let piece = raw.replace(/[^\p{L}\p{N}'’.,!?;:-]/gu, '');
+      const leading = [];
+      const trailing = [];
+      while (piece.length && isPunctuationToken(piece.charAt(0))) {
+        leading.push(piece.charAt(0));
+        piece = piece.slice(1);
+      }
+      while (piece.length && isPunctuationToken(piece.charAt(piece.length - 1))) {
+        trailing.unshift(piece.charAt(piece.length - 1));
+        piece = piece.slice(0, -1);
+      }
+      piece = piece.replace(/^['’-]+|['’-]+$/g, '');
+      leading.forEach((mark) => tokens.push(mark));
+      if (piece) tokens.push(piece);
+      trailing.forEach((mark) => tokens.push(mark));
+    });
+  return tokens;
+}
+
+// Punctuation tiles do not count toward a word minimum.
+function countWords(text) {
+  return tokenize(text).filter((token) => !isPunctuationToken(token)).length;
 }
 
 function joinWords(words) {
@@ -714,45 +711,11 @@ function buildWordbank(room) {
   return bank;
 }
 
-function fillerWord(room) {
-  const text = pick([
-    'synergy',
-    'leverage',
-    'optics',
-    'bandwidth',
-    'alignment',
-    'deliverable',
-    'stakeholder',
-    'onboarding',
-    'wellness',
-    'pivot',
-    'granular',
-    'proactive',
-    'roadmap',
-    'touchpoint',
-    'holistic',
-    'ideate'
-  ]);
-  wordSequence += 1;
-  const word = {
-    id: 'w' + wordSequence,
-    text,
-    authorId: null,
-    authorName: 'M. BUBBLES'
-  };
-  room.wordbank.push(word);
-  return word;
-}
-
+// Each applicant is dealt every word the others wrote — never their own — and
+// nothing invented by the game, exactly like the real controller.
 function buildHands(room) {
   room.players.forEach((player) => {
-    const mine = room.wordbank.filter((word) => word.authorId !== player.id);
-    const words = mine.slice();
-    let guard = 0;
-    while (words.length < HAND_FLOOR && guard < 80) {
-      words.push(fillerWord(room));
-      guard += 1;
-    }
+    const words = room.wordbank.filter((word) => word.authorId !== player.id);
     room.hands[player.id] = shuffle(words);
   });
 }
@@ -814,19 +777,6 @@ function resolveWords(room, player, promptIndex, ids) {
       return;
     }
 
-    const freeMatch = /^f(\d+)$/.exec(id);
-    if (freeMatch) {
-      const text = FREE_WORDS[Number(freeMatch[1])];
-      if (typeof text === 'string') {
-        resolved.push({
-          id,
-          text,
-          authorId: null,
-          authorName: 'M. BUBBLES',
-          free: true
-        });
-      }
-    }
   });
 
   return resolved;
@@ -1157,23 +1107,40 @@ function tallyMatch(room) {
   }
 
   const winnerEntry = winnerId === (entryA && entryA.authorId) ? entryA : entryB;
-  const loserEntry = winnerId === (entryA && entryA.authorId) ? entryB : entryA;
 
   const awards = [];
   let crossBonus = false;
 
+  const shareOf = (side) => (totalVotes ? Math.round((counts[side] / totalVotes) * 100) : 0);
+
+  // The real game pays a matchup by share of the vote, so a close loss still
+  // scores and a clean sweep takes the whole purse.
+  let pointsA = 0;
+  let pointsB = 0;
+  if (entryA && entryB && totalVotes > 0) {
+    pointsA = Math.round((MATCH_POINTS * counts.a) / totalVotes);
+    pointsB = MATCH_POINTS - pointsA;
+  }
+
+  const awardVotes = (entry, side, points) => {
+    if (!entry || points <= 0) return;
+    const player = room.players.find((p) => p.id === entry.authorId);
+    if (!player) return;
+    player.score += points;
+    awards.push({
+      id: player.id,
+      name: player.name,
+      color: player.color,
+      points,
+      reason: 'VOTES ' + counts[side] + ' OF ' + totalVotes + ' · ' + shareOf(side) + '%'
+    });
+  };
+
+  awardVotes(entryA, 'a', pointsA);
+  awardVotes(entryB, 'b', pointsB);
+
   if (winnerEntry) {
     const winnerPlayer = room.players.find((p) => p.id === winnerEntry.authorId);
-    if (winnerPlayer) {
-      winnerPlayer.score += MATCH_WIN_POINTS;
-      awards.push({
-        id: winnerPlayer.id,
-        name: winnerPlayer.name,
-        color: winnerPlayer.color,
-        points: MATCH_WIN_POINTS,
-        reason: 'WON THE MATCHUP'
-      });
-    }
 
     const royalties = new Map();
     winnerEntry.words.forEach((word) => {
@@ -1257,6 +1224,8 @@ function tallyMatch(room) {
     b: annotate(entryB),
     votes: counts,
     totalVotes,
+    percent: { a: shareOf('a'), b: shareOf('b') },
+    points: { a: pointsA, b: pointsB },
     winnerId,
     loserId,
     winnerSide: winnerId === match.a ? 'a' : 'b',
@@ -1440,7 +1409,6 @@ function personalizedState(room, player) {
       words: p.words
     }));
     base.hand = hand.map((word) => ({ id: word.id, text: word.text }));
-    base.free = FREE_WORDS.map((text, index) => ({ id: 'f' + index, text }));
     base.myAnswers = slot.map((answer) =>
       answer ? { text: answer.text, words: answer.words.map((w) => w.id) } : null
     );
@@ -1740,7 +1708,7 @@ io.on('connection', (socket) => {
         .slice(0, MAX_ANSWER_CHARS)
     );
 
-    const tooShort = answers.findIndex((answer) => tokenize(answer).length < MIN_ICEBREAKER_WORDS);
+    const tooShort = answers.findIndex((answer) => countWords(answer) < MIN_ICEBREAKER_WORDS);
     if (tooShort !== -1) {
       reply(ack, {
         ok: false,
@@ -1803,7 +1771,8 @@ io.on('connection', (socket) => {
 
     const ids = Array.isArray(data && data.wordIds) ? data.wordIds.slice(0, 80) : [];
     const resolved = resolveWords(room, player, promptIndex, ids);
-    if (resolved.length < MIN_ANSWER_WORDS) {
+    const spelledWords = resolved.filter((word) => !isPunctuationToken(word.text)).length;
+    if (spelledWords < MIN_ANSWER_WORDS) {
       reply(ack, { ok: false, error: 'HR requires at least two words. Even we have standards.' });
       return;
     }
