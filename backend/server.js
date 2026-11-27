@@ -495,6 +495,17 @@ function cleanName(raw) {
   return raw.replace(/\s+/g, ' ').trim().slice(0, MAX_NAME_LENGTH);
 }
 
+// Two applicants with the same badge are indistinguishable on the stage, so
+// names have to be unique per room (case and spacing do not count as a change).
+function nameKey(raw) {
+  return cleanName(raw).toLowerCase();
+}
+
+function nameTaken(room, name, exceptId) {
+  const key = nameKey(name);
+  return room.players.some((p) => p.id !== exceptId && nameKey(p.name) === key);
+}
+
 function normalizeCode(raw) {
   return String(raw || '')
     .toUpperCase()
@@ -1605,6 +1616,13 @@ io.on('connection', (socket) => {
     }
     if (!name) {
       reply(ack, { ok: false, error: 'Enter a name HR can mispronounce.' });
+      return;
+    }
+    if (nameTaken(room, name)) {
+      reply(ack, {
+        ok: false,
+        error: 'That name is already on file. Add a surname, a number, or a personality.'
+      });
       return;
     }
 

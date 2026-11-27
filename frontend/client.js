@@ -6,7 +6,7 @@
 /*  head. Word royalties go to whoever wrote the words you stole.      */
 /* ------------------------------------------------------------------ */
 
-const BACKEND_URL = 'https://YOUR-RENDER-APP.onrender.com';
+const BACKEND_URL = 'https://valence-hr.onrender.com';
 const LOCAL_URL = 'http://localhost:3000';
 
 const isLocalHost = /^(localhost|127\.0\.0\.1|0\.0\.0\.0|\[::1\])$/.test(location.hostname);
