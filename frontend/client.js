@@ -20,15 +20,26 @@ const CONNECT_TARGETS = PLACEHOLDER_BACKEND
   ? [LOCAL_URL, BACKEND_URL]
   : [BACKEND_URL];
 
-const STORE_SEAT = 'jobjob.seat.v2';
+const STORE_SEAT = 'jobjob.seat.v3';
 const STORE_MUTE = 'jobjob.mute';
+const STORE_NAME = 'jobjob.name.v2';
+
+// Seats and names are per-tab: localStorage is shared by every tab in the
+// browser, so a second tab used to open straight into the first tab's desk.
+function tabStore() {
+  try {
+    return window.sessionStorage;
+  } catch (error) {
+    return null;
+  }
+}
 
 const S = {
   socket: null,
   targetIndex: 0,
   connected: false,
   room: null,
-  identity: readJSON(STORE_SEAT),
+  identity: readJSON(tabStore(), STORE_SEAT),
   entryName: '',
   entryCode: '',
   builder: {},
@@ -49,9 +60,9 @@ const S = {
 /*  Tiny helpers                                                       */
 /* ------------------------------------------------------------------ */
 
-function readJSON(key) {
+function readJSON(store, key) {
   try {
-    const raw = localStorage.getItem(key);
+    const raw = store ? store.getItem(key) : null;
     return raw ? JSON.parse(raw) : null;
   } catch (error) {
     return null;
@@ -60,8 +71,10 @@ function readJSON(key) {
 
 function writeSeat(code, playerId) {
   S.identity = { code, playerId };
+  const store = tabStore();
+  if (!store) return;
   try {
-    localStorage.setItem(STORE_SEAT, JSON.stringify(S.identity));
+    store.setItem(STORE_SEAT, JSON.stringify(S.identity));
   } catch (error) {
     /* private mode */
   }
@@ -69,8 +82,10 @@ function writeSeat(code, playerId) {
 
 function clearSeat() {
   S.identity = null;
+  const store = tabStore();
+  if (!store) return;
   try {
-    localStorage.removeItem(STORE_SEAT);
+    store.removeItem(STORE_SEAT);
   } catch (error) {
     /* ignore */
   }
@@ -1520,16 +1535,19 @@ function screenForRoom(room) {
 /* ------------------------------------------------------------------ */
 
 function saveName(name) {
+  const store = tabStore();
+  if (!store) return;
   try {
-    localStorage.setItem('jobjob.name', name);
+    store.setItem(STORE_NAME, name);
   } catch (error) {
     /* ignore */
   }
 }
 
 function storedName() {
+  const store = tabStore();
   try {
-    return localStorage.getItem('jobjob.name') || '';
+    return (store && store.getItem(STORE_NAME)) || '';
   } catch (error) {
     return '';
   }

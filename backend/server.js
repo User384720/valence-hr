@@ -574,18 +574,23 @@ function colorFor(room, authorId) {
 }
 
 function leaderboardOf(room) {
-  return room.players
+  const sorted = room.players
     .slice()
-    .sort((a, b) => b.score - a.score || a.name.localeCompare(b.name))
-    .map((p, index) => ({
+    .sort((a, b) => b.score - a.score || a.name.localeCompare(b.name));
+
+  // Equal scores share a rank and a job title, so a tie never reads as a loss.
+  return sorted.map((p) => {
+    const rank = 1 + sorted.filter((other) => other.score > p.score).length;
+    return {
       id: p.id,
       name: p.name,
       score: p.score,
       color: p.color,
       connected: p.connected,
-      rank: index + 1,
-      title: TITLES[Math.min(index, TITLES.length - 1)]
-    }));
+      rank,
+      title: TITLES[Math.min(rank - 1, TITLES.length - 1)]
+    };
+  });
 }
 
 function leadersOf(room) {
@@ -1183,7 +1188,8 @@ function tallyMatch(room) {
     royalties.forEach((info, authorId) => {
       const author = room.players.find((p) => p.id === authorId);
       if (!author) return;
-      const points = WORD_ROYALTY_POINTS;
+      // Paid per word used, so the award matches the "x2" it advertises.
+      const points = WORD_ROYALTY_POINTS * info.count;
       author.score += points;
       awards.push({
         id: author.id,
