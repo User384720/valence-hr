@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>JOB JOB — Valence Corp Hiring Simulation</title>
+    <meta
+      name="description"
+      content="A 3–10 player party game. Answer interview questions using only your friends' words. Get hired. Probably."
+    />
+    <meta name="theme-color" content="#1B3B48" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Archivo+Black&family=Syne:wght@600;700;800&family=Courier+Prime:ital,wght@0,400;0,700;1,400&family=Space+Mono:wght@400;700&display=swap"
+      rel="stylesheet"
+    />
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="style.css" />
+    <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+  </head>
+  <body>
+    <div class="grain" aria-hidden="true"></div>
+
+    <button id="muteBtn" class="mute-btn" type="button" aria-pressed="false">
+      SOUND ON
+    </button>
+
+    <div id="netbar" class="netbar hidden" role="status">RECONNECTING TO HR…</div>
+
+    <main id="app" class="app" aria-live="polite"></main>
+
+    <div id="toast" class="toast" role="status" aria-live="polite"></div>
+
+    <div id="boot" class="boot">
+      <div class="boot-card">
+        <div class="boot-logo" aria-hidden="true">
+          <span class="boot-logo-tile boot-logo-tile--a">JOB</span>
+          <span class="boot-logo-tile boot-logo-tile--b">JOB</span>
+        </div>
+        <div class="boot-spinner" aria-hidden="true"></div>
+        <h1 class="boot-title">Connecting to Valence HR Servers…</h1>
+        <p class="boot-sub">(waking free-tier server, ~30s)</p>
+        <p id="bootStatus" class="boot-status">Initializing compliance module…</p>
+        <button id="bootRetry" class="btn btn--ink btn--small hidden" type="button">
+          RETRY CONNECTION
+        </button>
+        <p class="boot-fine">DO NOT FOLD, SPINDLE, OR MUTILATE</p>
+      </div>
+    </div>
+
+    <script src="client.js"></script>
+  </body>
+</html>
