@@ -565,7 +565,7 @@ function screenEntry() {
           <li><b>Icebreakers.</b> Two nosy questions. Five words minimum. Lie freely.</li>
           <li><b>Shredding.</b> Your sentences get chopped into word tiles and handed to everyone else.</li>
           <li><b>The interview.</b> Build answers using only your colleagues' words, the question's words, and a few free ones.</li>
-          <li><b>Head to head.</b> Answers face off. Everyone votes. Winners score, and so do the people whose words they stole.</li>
+          <li><b>Head to head.</b> Answers face off. Everyone votes. The matchup's 1,000 points follow the vote, and so do the people whose words you stole.</li>
           <li><b>Three rounds.</b> Interview, office life, personal statement. Most points scores the JOB JOB.</li>
         </ol>
       </div>
@@ -717,7 +717,7 @@ function screenLobby(room) {
           enough ? 'READY TO BEGIN' : Math.max(0, room.minPlayers - ready) + ' MORE NEEDED'
         }</p>
           <div class="score-legend">
-            <span><b>+1,000</b> MATCH WIN</span>
+            <span><b>1,000</b> SPLIT BY VOTES</span>
             <span><b>+300</b> EACH WORD AUTHOR</span>
             <span><b>+200</b> EACH QUESTION WORD</span>
             <span><b>+500</b> CROSS-DEPARTMENT</span>
