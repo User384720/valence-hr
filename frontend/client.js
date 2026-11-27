@@ -1566,7 +1566,6 @@ function doCreate() {
       toast(res.error || 'HR rejected your application.');
       return;
     }
-    clearSeat();
     SFX.chime();
   });
 }

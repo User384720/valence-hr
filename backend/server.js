@@ -1552,6 +1552,26 @@ app.use(express.static(path.join(__dirname, '..', 'frontend')));
 /* Socket handlers                                                    */
 /* ------------------------------------------------------------------ */
 
+// A socket can only sit in one room. Without this, creating a new room while
+// still attached to an old one leaves a ghost applicant behind and lets the old
+// room keep pushing state into the tab.
+function detachFromRoom(socket) {
+  const code = socket.data && socket.data.code;
+  if (!code) return;
+  const old = rooms.get(code);
+  socket.leave(code);
+  socket.data.code = null;
+  socket.data.playerId = null;
+  if (!old) return;
+  const player = old.players.find((p) => p.socketId === socket.id);
+  if (!player) return;
+  player.connected = false;
+  player.socketId = null;
+  ensureHost(old);
+  broadcastRoom(old);
+  maybeAdvance(old);
+}
+
 function contextFor(socket) {
   const code = socket.data && socket.data.code;
   const room = code ? rooms.get(code) : null;
@@ -1588,6 +1608,7 @@ io.on('connection', (socket) => {
       return;
     }
 
+    detachFromRoom(socket);
     const code = uniqueCode();
     const room = createRoom(code);
     const player = makePlayer(room, name, socket.id);
@@ -1632,6 +1653,7 @@ io.on('connection', (socket) => {
       return;
     }
 
+    detachFromRoom(socket);
     const player = makePlayer(room, name, socket.id);
     room.players.push(player);
     socket.data.code = code;
@@ -1659,6 +1681,9 @@ io.on('connection', (socket) => {
       return;
     }
 
+    if (socket.data && socket.data.playerId && socket.data.playerId !== playerId) {
+      detachFromRoom(socket);
+    }
     player.connected = true;
     player.socketId = socket.id;
     socket.data.code = code;
