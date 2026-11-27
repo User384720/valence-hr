@@ -2546,3 +2546,17 @@ textarea {
     font-size: 14.5px;
   }
 }
+
+/* Held word being dragged into a new position in the answer tray */
+.chip--placed {
+  touch-action: none;
+  user-select: none;
+}
+.chip--dragging {
+  opacity: 0.55;
+  transform: scale(0.96);
+}
+.chip--drop {
+  outline: 3px dashed #F25C2A;
+  outline-offset: 2px;
+}

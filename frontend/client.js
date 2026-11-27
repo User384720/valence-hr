@@ -303,6 +303,12 @@ function connect() {
   });
 
   S.socket.on('room_state', (state) => {
+    // Each round opens a fresh warm-up, so the previous answers must not ride
+    // along into the new questionnaire.
+    if (state && state.phase === 'icebreakers' && S.iceRound !== state.round) {
+      S.iceRound = state.round;
+      S.ice = ['', ''];
+    }
     S.room = state;
     if (state && state.serverNow) S.clockOffset = state.serverNow - Date.now();
     if (state && state.code) writeSeat(state.code, state.myId);
@@ -563,10 +569,10 @@ function screenEntry() {
         <h2 class="howto__title">HOW THIS WORKS</h2>
         <ol class="howto__list">
           <li><b>Icebreakers.</b> Two nosy questions. Five words minimum. Lie freely.</li>
-          <li><b>Shredding.</b> Your sentences get chopped into word tiles and handed to everyone else.</li>
-          <li><b>The interview.</b> Build answers using only your colleagues' words, the question's words, and a few free ones.</li>
-          <li><b>Head to head.</b> Answers face off. Everyone votes. The matchup's 1,000 points follow the vote, and so do the people whose words you stole.</li>
-          <li><b>Three rounds.</b> Interview, office life, personal statement. Most points scores the JOB JOB.</li>
+          <li><b>Shredding.</b> Your sentences get chopped into word tiles and dealt to everyone else.</li>
+          <li><b>The interview.</b> Build answers using only your colleagues' words and the question's own words.</li>
+          <li><b>Head to head.</b> Answers face off. The rest of the panel votes — you sit out your own matchup. Its 1,000 points follow the vote, and so do the people whose words you stole.</li>
+          <li><b>Three rounds.</b> Every round opens with fresh icebreakers, then interview, office life, or personal statements. Most points scores the JOB JOB.</li>
         </ol>
       </div>
       <p class="fineprint">3–10 APPLICANTS · ~20 MINUTES · NO EXPERIENCE REQUIRED</p>
@@ -756,6 +762,9 @@ function screenIcebreakers(room) {
   const ids = room.filedIds || [];
   const waiting = room.players.filter((p) => p.connected && ids.indexOf(p.id) === -1);
   const minWords = room.minWords || 5;
+  const roundLabel = room.roundMeta ? room.roundMeta.label : 'ROUND 1';
+  const warmupTitles = ['TELL US ABOUT YOURSELF', 'OFFICE SMALL TALK', 'ONE LAST THING'];
+  const warmupTitle = warmupTitles[room.round] || warmupTitles[0];
 
   if (filed) {
     const mine = room.myAnswers || [];
@@ -767,9 +776,9 @@ function screenIcebreakers(room) {
           body: `
             <div class="stage__stamprow">${stamp('FILED', 'hired stamp--big')}</div>
             ${showHead(
-              'ROUND 0 · SELF-ASSESSMENT',
+              roundLabel + ' · WARM-UP',
               'PAPERWORK RECEIVED',
-              'Your sentences are being shredded into word tiles as we speak.'
+              'Fresh sentences, fresh shredding. New word tiles are on the way.'
             )}
             <div class="stage__answers">
               ${mine
@@ -795,7 +804,7 @@ function screenIcebreakers(room) {
                 ? 'WAITING ON ' + waiting.length + ' APPLICANT' + (waiting.length === 1 ? '' : 'S')
                 : 'SHREDDER STARTING'
             }</b>
-            <p class="muted">Everything you typed is now company property.</p>
+            <p class="muted">Everything you typed is now company property. Again.</p>
             <div class="waiting-list">
               ${
                 waiting.length
@@ -819,9 +828,9 @@ function screenIcebreakers(room) {
         className: 'stage--ice',
         body: `
           ${showHead(
-            'ROUND 0 · SELF-ASSESSMENT',
-            'TELL US ABOUT YOURSELF',
-            'Every applicant gets their own questions. Five words minimum. Lying is encouraged.'
+            roundLabel + ' · WARM-UP',
+            warmupTitle,
+            'Every round starts with fresh questions. Each applicant gets their own. Five words minimum.'
           )}
           <div class="stage__questions">
             ${prompts
@@ -1105,12 +1114,11 @@ function screenInterview(room) {
             <span class="tiny">${picks.length} WORDS</span>
           </div>
           <div class="tray" data-tray>
-            ${
-              picks.length
+                          ${picks.length
                 ? picks
                     .map(
                       (chip, index) => `
-                  <button class="chip chip--placed" type="button" data-remove="${index}">${esc(
+                  <button class="chip chip--placed" type="button" data-remove="${index}" data-move="${index}">${esc(
                         chip.text
                       )}</button>`
                     )
@@ -1122,6 +1130,7 @@ function screenInterview(room) {
             <button class="mini" type="button" data-act="undo">UNDO</button>
             <button class="mini" type="button" data-act="clear">CLEAR</button>
           </div>
+          ${picks.length > 1 ? '<p class="tiny tiny--center">HOLD A WORD AND DRAG IT TO REARRANGE</p>' : ''}
         </div>
 
         <div class="card card--pad words-card">
@@ -1193,7 +1202,7 @@ function matchupCard(room, side) {
       type="button" data-vote="${side}" ${disabled ? 'disabled' : ''}>
       <span class="match-card__tag">${mine ? 'YOUR FILING' : side.toUpperCase()}</span>
       <span class="match-card__text">${filled || esc(data.text)}</span>
-      ${mine ? '<span class="match-card__note">You cannot approve yourself.</span>' : ''}
+      ${mine ? '<span class="match-card__note">YOUR FILING · YOU SIT THIS VOTE OUT</span>' : ''}
       ${voted ? '<span class="match-card__note">REVIEW FILED ✓</span>' : ''}
     </button>`;
 }
@@ -1212,12 +1221,12 @@ function screenMatchup(room) {
   const voted = Boolean(match.myVote);
   const promptLine =
     fillPromptText(match.promptText, match.blank ? '________' : null) || esc(match.promptText);
-  const statusLine = !match.eligible
+  const statusLine = match.mine
+    ? 'You are in this matchup. The panel decides this one without you.'
+    : !match.eligible
     ? 'You filed no answer, so you are observing this round.'
     : voted
     ? 'Review filed. Waiting for the rest of the panel…'
-    : match.mine
-    ? 'Vote for your opponent. Democracy is mandatory.'
     : 'Pick the answer that gets the job. Or the funniest one.';
 
   return `
@@ -1799,6 +1808,11 @@ function handleAction(action) {
 }
 
 function onClick(event) {
+  if (traySuppressClick) {
+    traySuppressClick = false;
+    return;
+  }
+
   const removeBtn = event.target.closest('[data-remove]');
   if (removeBtn) {
     removeChip(Number(removeBtn.getAttribute('data-remove')));
@@ -1925,6 +1939,88 @@ function bindScreen() {
       updateIceCounter(index);
     });
     updateIceCounter(index);
+  });
+
+  bindTrayDrag();
+}
+
+/* ------------------------------------------------------------------ */
+/*  Answer tray: hold a placed word and drag it into a new position    */
+/* ------------------------------------------------------------------ */
+
+let trayDrag = null;
+let traySuppressClick = false;
+
+function bindTrayDrag() {
+  const tray = $('[data-tray]');
+  if (!tray) return;
+
+  tray.addEventListener('pointerdown', (event) => {
+    const chip = event.target.closest('[data-move]');
+    if (!chip || (event.pointerType === 'mouse' && event.button !== 0)) return;
+    const index = Number(chip.getAttribute('data-move'));
+    const drag = { index, target: index, x: event.clientX, y: event.clientY, active: false, timer: 0 };
+    drag.timer = setTimeout(() => {
+      if (trayDrag !== drag) return;
+      drag.active = true;
+      chip.classList.add('chip--dragging');
+      vibrate(10);
+    }, 180);
+    trayDrag = drag;
+  });
+
+  tray.addEventListener(
+    'pointermove',
+    (event) => {
+      const drag = trayDrag;
+      if (!drag) return;
+      if (!drag.active) {
+        if (Math.abs(event.clientX - drag.x) > 8 || Math.abs(event.clientY - drag.y) > 8) {
+          clearTimeout(drag.timer);
+          trayDrag = null;
+        }
+        return;
+      }
+      event.preventDefault();
+      const under = document.elementFromPoint(event.clientX, event.clientY);
+      const over = under && under.closest ? under.closest('[data-move]') : null;
+      if (!over) return;
+      const target = Number(over.getAttribute('data-move'));
+      if (target === drag.target) return;
+      drag.target = target;
+      $$('[data-tray] [data-move]').forEach((node) => node.classList.remove('chip--drop'));
+      over.classList.add('chip--drop');
+    },
+    { passive: false }
+  );
+
+  const finish = (cancelled) => {
+    const drag = trayDrag;
+    if (!drag) return;
+    clearTimeout(drag.timer);
+    trayDrag = null;
+    if (!drag.active) return;
+    traySuppressClick = true;
+    const room = S.room;
+    if (!cancelled && drag.target !== drag.index && room) {
+      const picks = picksFor(room).slice();
+      const moved = picks.splice(drag.index, 1)[0];
+      if (moved) {
+        picks.splice(drag.target, 0, moved);
+        setPicks(room, picks);
+        SFX.pop();
+      }
+    }
+    render(true);
+  };
+
+  tray.addEventListener('pointerup', () => finish(false));
+  tray.addEventListener('pointercancel', () => finish(true));
+  tray.addEventListener('pointerleave', () => {
+    if (trayDrag && trayDrag.active) finish(true);
+  });
+  tray.addEventListener('contextmenu', (event) => {
+    if (trayDrag && trayDrag.active) event.preventDefault();
   });
 }
 

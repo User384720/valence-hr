@@ -45,9 +45,9 @@ const MIN_ANSWER_WORDS = 2;
 // the way the real game does it.
 const MATCH_POINTS = 1000;
 const WORD_ROYALTY_POINTS = 300;
-const QUESTION_WORD_BONUS = 200;
-const QUESTION_WORD_CAP = 3;
-const CROSS_DEPARTMENT_BONUS = 500;
+// The real game calls this the Rainbow Bonus: a winning answer stitched from
+// three different applicants' words.
+const RAINBOW_BONUS = 500;
 
 const COLORS = [
   '#F25C2A',
@@ -305,6 +305,70 @@ const STATEMENT_PROMPTS = [
   'My legacy at this company will be ___.'
 ];
 
+// Every round starts with its own warm-up questions, exactly like the real
+// game: new answers, freshly shredded, dealt out again.
+const OFFICE_ICEBREAKERS = [
+  "What's the worst thing you've ever done to avoid a meeting?",
+  'Describe the last office snack you would defend in court.',
+  "What's a phrase you use at work that means nothing?",
+  'What is the most useless object on your desk, and why do you keep it?',
+  "What's the pettiest workplace rule you would enforce immediately?",
+  'Describe your commute as if it were a quest.',
+  "What's the longest you have ever stared at an email before replying?",
+  'What would your chair say about you if it could talk?',
+  "What's the strangest thing you have ever done in a break room?",
+  'What is your official policy on the office birthday cake?',
+  "What's a coworker habit you have quietly declared war on?",
+  'What is the worst thing you have ever brought to a potluck?',
+  'Describe the last time you pretended to be on a call.',
+  "What's your strategy for the communal fridge?",
+  'What is the most dramatic thing you have done for a good parking spot?',
+  "What's a work email subject line you would pay to receive?",
+  'What is the correct way to end a video call, and why is it wrong?',
+  "What's the most suspicious thing in your building's supply closet?",
+  'What is your greatest achievement in a meeting you did not need to attend?',
+  'Describe your relationship with the phrase "quick question."',
+  "What's the worst advice a manager has ever given you?",
+  'What would you put on a motivational poster about your desk?',
+  'What is the most elaborate lie you have told about being busy?',
+  "What's the best thing you have ever stolen from an office?"
+];
+
+const RESUME_ICEBREAKERS = [
+  "What's something you own that says too much about you?",
+  'Describe yourself using only foods.',
+  "What's the strangest talent you would put on a resume?",
+  'What is the last thing you want people to know about you?',
+  "What's a compliment you would rather not receive?",
+  'What is your worst quality that you would call a strength?',
+  'Describe your childhood bedroom using one object.',
+  "What's the most embarrassing thing in your search history?",
+  'What would your friends say is your signature move?',
+  "What's a thing you are weirdly competitive about?",
+  'What is the oldest thing you still own and use?',
+  "What's the biggest lie on your resume, technically?",
+  'What would your autobiography be called in four words?',
+  "What's a small thing that instantly makes you trust someone?",
+  'What is your most useless childhood skill?',
+  "What's the worst haircut you have ever described as fine?",
+  'What is the strangest thing you have ever collected?',
+  "What's a belief you had as a child that turned out to be wrong?",
+  'What is your go-to excuse for being late?',
+  "What's something you did once and will never explain?",
+  'What is the most embarrassing thing you have ever googled?',
+  "What's a smell that instantly makes you suspicious?",
+  'What is the last thing you brag about in private?',
+  "What's the weirdest thing you would admit in an interview?",
+  'What would your name be if you had chosen it yourself?',
+  "What's a compliment you have given that was not a compliment?",
+  'Describe your worst purchase in three words.',
+  "What's the most dramatic thing you have done for a snack?",
+  'What is the last thing you would want on your tombstone?',
+  "What's something you pretend to like to fit in?",
+  'What is the strangest thing you have ever been proud of?',
+  "What's the worst thing you have ever said to a plant?"
+];
+
 const ROUNDS = [
   {
     key: 'interview',
@@ -312,7 +376,8 @@ const ROUNDS = [
     title: 'THE INTERVIEW',
     tagline: 'Classic questions. Applicant-supplied vocabulary.',
     promptCount: 2,
-    bank: INTERVIEW_QUESTIONS
+    bank: INTERVIEW_QUESTIONS,
+    warmup: ICEBREAKERS
   },
   {
     key: 'office',
@@ -320,7 +385,8 @@ const ROUNDS = [
     title: 'OFFICE LIFE',
     tagline: 'Hypotheticals from the employee handbook. Page 12.',
     promptCount: 2,
-    bank: OFFICE_QUESTIONS
+    bank: OFFICE_QUESTIONS,
+    warmup: OFFICE_ICEBREAKERS
   },
   {
     key: 'statement',
@@ -328,7 +394,8 @@ const ROUNDS = [
     title: 'THE PERSONAL STATEMENT',
     tagline: 'M. Bubbles lost your resume. Finish both sentences anyway.',
     promptCount: 2,
-    bank: STATEMENT_PROMPTS
+    bank: STATEMENT_PROMPTS,
+    warmup: RESUME_ICEBREAKERS
   }
 ];
 
@@ -618,6 +685,7 @@ function createRoom(code) {
     players: [],
     icebreakerPrompts: {},
     icebreakerAnswers: {},
+    usedIcebreakers: [],
     wordbank: [],
     hands: {},
     roundPrompts: [],
@@ -720,16 +788,9 @@ function buildHands(room) {
   });
 }
 
+// Every word in the question is its own usable tile, duplicates included.
 function promptWords(promptText) {
-  const seen = new Set();
-  const words = [];
-  tokenize(promptText).forEach((text) => {
-    const key = text.toLowerCase();
-    if (seen.has(key)) return;
-    seen.add(key);
-    words.push({ id: 'q' + words.length, text });
-  });
-  return words;
+  return tokenize(promptText).map((text, index) => ({ id: 'q' + index, text }));
 }
 
 function answerFor(room, authorId, promptIndex) {
@@ -798,9 +859,10 @@ function annotateWords(room, words) {
 /* ------------------------------------------------------------------ */
 
 function beginGame(room) {
-  room.phase = 'icebreakers';
   room.round = 0;
   room.icebreakerAnswers = {};
+  room.icebreakerPrompts = {};
+  room.usedIcebreakers = [];
   room.wordbank = [];
   room.hands = {};
   room.roundPrompts = [];
@@ -815,17 +877,38 @@ function beginGame(room) {
     player.score = 0;
   });
 
-  // The real game deals each applicant their own questions, which keeps the
-  // resulting word pool weird and wide instead of five versions of one answer.
-  const deck = shuffle(ICEBREAKERS);
+  beginWarmup(room, 0);
+}
+
+// Every round opens with fresh icebreakers. Each applicant still gets their own
+// questions, which keeps the resulting word pool weird and wide.
+function beginWarmup(room, roundIndex) {
+  room.round = roundIndex;
+  room.phase = 'icebreakers';
+  room.icebreakerAnswers = {};
   room.icebreakerPrompts = {};
+  room.wordbank = [];
+  room.hands = {};
+  room.roundAnswers = {};
+  room.promptsDone = [];
+  room.currentPrompt = null;
+  room.match = null;
+  room.lastMatch = null;
+  room.roundResult = null;
   room.script = [];
   room.championIds = {};
+
+  const bank = (ROUNDS[roundIndex] && ROUNDS[roundIndex].warmup) || ICEBREAKERS;
+  const fresh = bank.filter((question) => room.usedIcebreakers.indexOf(question) === -1);
+  const source = fresh.length >= room.players.length * 2 ? fresh : bank;
+  const deck = shuffle(source);
   room.players.forEach((player, index) => {
-    room.icebreakerPrompts[player.id] = [
-      deck[(index * 2) % deck.length],
-      deck[(index * 2 + 1) % deck.length]
-    ];
+    const first = deck[(index * 2) % deck.length];
+    const second = deck[(index * 2 + 1) % deck.length];
+    room.icebreakerPrompts[player.id] = [first, second];
+    [first, second].forEach((question) => {
+      if (room.usedIcebreakers.indexOf(question) === -1) room.usedIcebreakers.push(question);
+    });
   });
 
   startTimer(room, ICEBREAKER_SECONDS, () => advanceIcebreakers(room));
@@ -837,7 +920,7 @@ function advanceIcebreakers(room) {
   stopTimer(room);
   room.wordbank = buildWordbank(room);
   buildHands(room);
-  beginRound(room, 0);
+  beginBriefing(room, room.round);
 }
 
 function allIcebreakersFiled(room) {
@@ -858,7 +941,7 @@ function pickPrompts(room, roundIndex, count) {
   return shuffle(source).slice(0, wanted);
 }
 
-function beginRound(room, roundIndex) {
+function beginBriefing(room, roundIndex) {
   room.round = roundIndex;
   room.phase = 'briefing';
   room.roundAnswers = {};
@@ -1167,34 +1250,16 @@ function tallyMatch(room) {
       });
     });
 
-    // Working in the question's own words pays extra, as it does in the game.
-    const questionWordsUsed = new Set();
-    winnerEntry.words.forEach((word) => {
-      if (word.id && word.id.charAt(0) === 'q') questionWordsUsed.add(word.id);
-    });
-    const questionCount = Math.min(questionWordsUsed.size, QUESTION_WORD_CAP);
-    if (questionCount > 0 && winnerPlayer) {
-      const questionPoints = questionCount * QUESTION_WORD_BONUS;
-      winnerPlayer.score += questionPoints;
-      awards.push({
-        id: winnerPlayer.id,
-        name: winnerPlayer.name,
-        color: winnerPlayer.color,
-        points: questionPoints,
-        reason: 'QUESTION WORDS x' + questionCount
-      });
-    }
-
     if (royalties.size + 1 >= 3) {
       crossBonus = true;
-      if (winnerPlayer) winnerPlayer.score += CROSS_DEPARTMENT_BONUS;
+      if (winnerPlayer) winnerPlayer.score += RAINBOW_BONUS;
       if (winnerPlayer) {
         awards.push({
           id: winnerPlayer.id,
           name: winnerPlayer.name,
           color: winnerPlayer.color,
-          points: CROSS_DEPARTMENT_BONUS,
-          reason: 'CROSS-DEPARTMENT BONUS'
+          points: RAINBOW_BONUS,
+          reason: 'RAINBOW BONUS'
         });
       }
     }
@@ -1312,7 +1377,7 @@ function afterRoundResult(room) {
     finishGame(room);
     return;
   }
-  beginRound(room, room.round + 1);
+  beginWarmup(room, room.round + 1);
 }
 
 function finishGame(room) {
@@ -1329,6 +1394,7 @@ function resetForLobby(room) {
   room.round = 0;
   room.icebreakerPrompts = {};
   room.icebreakerAnswers = {};
+  room.usedIcebreakers = [];
   room.wordbank = [];
   room.hands = {};
   room.roundPrompts = [];
@@ -1457,12 +1523,16 @@ function personalizedState(room, player) {
       b: entryB ? { text: entryB.text } : null,
       mine: match.a === player.id ? 'a' : match.b === player.id ? 'b' : null,
       myVote: match.votes[player.id] || null,
-      canVote: Boolean(myAnswer),
+      canVote:
+        Boolean(myAnswer) && match.a !== player.id && match.b !== player.id,
       eligible: Boolean(myAnswer),
       votes,
       votedIds: Object.keys(match.votes),
-      voterCount: connectedPlayers(room).filter((p) =>
-        Boolean(answerFor(room, p.id, match.promptIndex))
+      voterCount: connectedPlayers(room).filter(
+        (p) =>
+          p.id !== match.a &&
+          p.id !== match.b &&
+          Boolean(answerFor(room, p.id, match.promptIndex))
       ).length
     };
     return base;
@@ -1559,8 +1629,11 @@ function maybeAdvance(room) {
   }
   if (room.phase === 'matchup' && room.match) {
     const match = room.match;
-    const eligible = connectedPlayers(room).filter((p) =>
-      Boolean(answerFor(room, p.id, match.promptIndex))
+    const eligible = connectedPlayers(room).filter(
+      (p) =>
+        p.id !== match.a &&
+        p.id !== match.b &&
+        Boolean(answerFor(room, p.id, match.promptIndex))
     );
     if (eligible.length && eligible.every((p) => Boolean(match.votes[p.id]))) {
       tallyMatch(room);
@@ -1811,12 +1884,9 @@ io.on('connection', (socket) => {
       reply(ack, { ok: false, error: 'You filed no answer, so you cannot judge this one.' });
       return;
     }
-    if (side === 'a' && match.a === player.id) {
-      reply(ack, { ok: false, error: 'You cannot approve your own answer.' });
-      return;
-    }
-    if (side === 'b' && match.b === player.id) {
-      reply(ack, { ok: false, error: 'You cannot approve your own answer.' });
+    // Applicants in the matchup step out of the panel, as they do in the game.
+    if (match.a === player.id || match.b === player.id) {
+      reply(ack, { ok: false, error: 'You are in this matchup. The panel decides.' });
       return;
     }
 
